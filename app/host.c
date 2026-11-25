@@ -415,7 +415,8 @@ static int isnum(const char *s);
 static int ieq(const char *a, const char *b);
 static int param_of(const char *s);
 static const char *const MN[NMS] = {"lo", "mid", "hi", "-", "color", "camount", "ctone", "cmix", "perc", "mel",
-                                    "comp", "pump", "pumpby", "release", "accent", "level"};
+                                    "comp", "pump", "pumpby", "release", "accent", "level", "filter", "fcut", "fres",
+                                    "fmix"};
 /* fm1-base's expect, for LOOM-8's own state with one value */
 int app_expect(const char *what, int *got)
 {
@@ -1687,7 +1688,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
                                                     * values in their new places, the kit's track sends on every key,
                                                     * the lanes' drum parameters and tune renumbered (a one-off rescue,
                                                     * build/rescue: restore a backup, upgrade9, backup) */
-        enum { O_TRK = offsetof(settings_t, trk), ODP = 18, ONTP = TP_DRUM0 + 11 * ODP, OTRK = ONTP + NAME_LEN + 4 };
+        enum { O_TRK = offsetof(settings_t, trk) - (NMS - MS_NMS22), ODP = 18, ONTP = TP_DRUM0 + 11 * ODP, OTRK = ONTP + NAME_LEN + 4 };
         static uint8_t old[4096];
         int slot = a ? atoi(a) - 1 : -1, len, k, p, t, nl = 0;
         if (slot < 0 || slot >= NPROJ)
@@ -1713,6 +1714,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         }
         patterns_clamp();
         memcpy(&proj, old, O_TRK);
+        master_filter_defaults();
         proj.format = PROJ_FORMAT;
         for (t = 0; t < NALLTRK; t++) {
             const uint8_t *o = old + O_TRK + t * OTRK;

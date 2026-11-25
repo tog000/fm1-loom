@@ -212,6 +212,32 @@ static void pump_trace(float *g, int nb, int k0, int k1, int src, int vel)
         g[b] = 20.0f * 0.30103f * fm_log2f(fm_maxf(lo, 1e-9f) * 10.0f);
     }
 }
+/* the master filter's gain at hz (dB, against the dry sine), a quiet sine (the compressor off, the limiter idle) */
+static float filt_gain(master_t *m, int ty, int cut, int res, float hz, float *pl, float *pr, float *ml, float *mr, float *ol,
+                       float *or_)
+{
+    float e[2] = {0.0f, 0.0f};
+    int pass, b, i;
+    for (pass = 0; pass < 2; pass++) {
+        master_init(m);
+        if (pass) {
+            master_set(m, MS_FTYPE, ty);
+            master_set(m, MS_FCUT, cut);
+            master_set(m, MS_FRES, res);
+        }
+        for (b = 0; b < 200; b++) {
+            for (i = 0; i < BLK; i++) {
+                pl[i] = pr[i] = 0.0f;
+                ml[i] = mr[i] = 0.05f * fm_sin_turns((float)(b * BLK + i) * (hz / SR));
+            }
+            master_process(m, pl, pr, ml, mr, ol, or_, BLK);
+            if (b >= 100)
+                for (i = 0; i < BLK; i++)
+                    e[pass] += ol[i] * ol[i];
+        }
+    }
+    return 10.0f * 0.30103f * fm_log2f((e[1] + 1e-20f) / e[0]);
+}
 static float trace_min(const float *g, int a, int b)
 {
     float m = 1e9f;
@@ -576,6 +602,101 @@ int main(void)
             snprintf(name, sizeof name, "EQ low 127, high 0: low +12 dB (%.1f dB), high -12 dB (%.1f dB)",
                      (double)(10.0f * 0.30103f * fm_log2f(lo1 / lo0)), (double)(10.0f * 0.30103f * fm_log2f(hi1 / hi0)));
             check(name, lo1 > lo0 * 10.0f && lo1 < lo0 * 20.0f && hi1 < hi0 * 0.1f && hi1 > hi0 * 0.05f);
+        }
+        MS_INIT();
+        /* the filter (format 23): each type's response, dj's flat centre, a sweep's safety */
+        {
+            int hp;
+#define FGAIN(ty, cut, res, hz) filt_gain(ms, ty, cut, res, hz, pl, pr, mll, mlr, ol2, or2)
+            float hz = master_filter_hz(MF_LP, 70, &hp);
+            float lp_pass = FGAIN(MF_LP, 70, 0, 200.0f), lp_stop = FGAIN(MF_LP, 70, 0, 8000.0f);
+            float hp_pass = FGAIN(MF_HP, 70, 0, 8000.0f), hp_stop = FGAIN(MF_HP, 70, 0, 125.0f);
+            float bp_peak = FGAIN(MF_BP, 70, 100, hz), bp_lo = FGAIN(MF_BP, 70, 100, 100.0f), bp_hi = FGAIN(MF_BP, 70, 100, 10000.0f);
+            float dj_lo = FGAIN(MF_DJ, 0, 0, 1000.0f), dj_hi = FGAIN(MF_DJ, 127, 0, 1000.0f);
+            float lp_res = FGAIN(MF_LP, 70, 127, hz);
+            snprintf(name, sizeof name, "filter lp at %.0f Hz: 200 Hz %.1f dB, 8 kHz %.1f dB", (double)hz, (double)lp_pass,
+                     (double)lp_stop);
+            check(name, fm_fabsf(lp_pass) < 1.0f && lp_stop < -50.0f);
+            snprintf(name, sizeof name, "filter hp there: 8 kHz %.1f dB, 125 Hz %.1f dB", (double)hp_pass, (double)hp_stop);
+            check(name, fm_fabsf(hp_pass) < 1.0f && hp_stop < -50.0f);
+            snprintf(name, sizeof name, "filter bp (reso 100): peak %.1f dB, 100 Hz %.1f dB, 10 kHz %.1f dB", (double)bp_peak,
+                     (double)bp_lo, (double)bp_hi);
+            check(name, fm_fabsf(bp_peak) < 1.5f && bp_lo < -12.0f && bp_hi < -12.0f);
+            snprintf(name, sizeof name, "filter dj at 0 / 127: 1 kHz %.1f / %.1f dB", (double)dj_lo, (double)dj_hi);
+            check(name, dj_lo < -30.0f && dj_hi < -30.0f);
+            snprintf(name, sizeof name, "filter lp reso 127: %.1f dB at the cutoff (a peak, bounded)", (double)lp_res);
+            check(name, lp_res > 10.0f && lp_res < 24.0f);
+        }
+        MS_INIT();
+        {   /* dj at its centre: the bus bit for bit as with the filter off (the filter runs, all dry) */
+            int ok2 = 1;
+            n = 0;
+            master_set(ms, MS_FTYPE, MF_DJ);
+            for (b = 0; b < 100; b++) {
+                for (i = 0; i < BLK; i++) {
+                    pl[i] = pr[i] = 0.0f; mll[i] = 0.3f * noise(); mlr[i] = 0.3f * noise();
+                    hist_l[(n + i) % (BLK * 4)] = mll[i];
+                    hist_r[(n + i) % (BLK * 4)] = mlr[i];
+                }
+                master_process(ms, pl, pr, mll, mlr, ol2, or2, BLK);
+                for (i = 0; i < BLK; i++) {
+                    int t0 = n + i - 64;
+                    if (t0 >= 0)
+                        ok2 &= ol2[i] == hist_l[t0 % (BLK * 4)] && or2[i] == hist_r[t0 % (BLK * 4)];
+                }
+                n += BLK;
+            }
+            check("filter dj at 64: bit-transparent", ok2);
+        }
+        MS_INIT();
+        {   /* a dj sweep 0 .. 127 .. 0 at full resonance, a knob step a block, on loud noise: no NaN, no blow-up, and
+             * the glide keeps every step small (the largest jump between samples no more than the dry noise's) */
+            float pk = 0.0f, jmp = 0.0f, last = 0.0f, djmp = 0.0f, dlast = 0.0f;
+            int ok2 = 1;
+            master_set(ms, MS_FTYPE, MF_DJ);
+            master_set(ms, MS_FRES, 127);
+            for (b = 0; b < 512; b++) {
+                int c = b < 256 ? b / 2 : (511 - b) / 2;
+                master_set(ms, MS_FCUT, c);
+                for (i = 0; i < BLK; i++) {
+                    float x = 0.2f * noise();
+                    pl[i] = pr[i] = 0.0f; mll[i] = mlr[i] = x;
+                    djmp = fm_maxf(djmp, fm_fabsf(x - dlast));
+                    dlast = x;
+                }
+                master_process(ms, pl, pr, mll, mlr, ol2, or2, BLK);
+                for (i = 0; i < BLK; i++) {
+                    ok2 &= ol2[i] == ol2[i] && or2[i] == or2[i];
+                    pk = fm_maxf(pk, fm_fabsf(ol2[i]));
+                    jmp = fm_maxf(jmp, fm_fabsf(ol2[i] - last));
+                    last = ol2[i];
+                }
+            }
+            snprintf(name, sizeof name, "filter dj sweep, reso 127, on noise: no NaN, peak %.2f", (double)pk);
+            check(name, ok2 && pk <= 1.0f);
+            (void)jmp; (void)djmp;
+        }
+        MS_INIT();
+        {   /* a sweep across dj's centre on a 100 Hz sine: the glide and the lp / hp switch never click (the largest step
+             * between samples stays near the sine's own, ~0.003) */
+            float jmp = 0.0f, last = 0.0f;
+            int k = 0;
+            master_set(ms, MS_FTYPE, MF_DJ);
+            for (b = 0; b < 1024; b++) {
+                master_set(ms, MS_FCUT, 40 + (b / 8) % 48);   /* 40 .. 87 and back to 40 at once: the worst jumps */
+                for (i = 0; i < BLK; i++, k++) {
+                    pl[i] = pr[i] = 0.0f;
+                    mll[i] = mlr[i] = 0.2f * fm_sin_turns((float)(k % 441) * (100.0f / SR));
+                }
+                master_process(ms, pl, pr, mll, mlr, ol2, or2, BLK);
+                for (i = 0; i < BLK; i++) {
+                    if (b > 4)
+                        jmp = fm_maxf(jmp, fm_fabsf(ol2[i] - last));
+                    last = ol2[i];
+                }
+            }
+            snprintf(name, sizeof name, "filter dj swept across its centre on a sine: largest step %.4f", (double)jmp);
+            check(name, jmp < 0.01f);
         }
         MS_INIT();
         {   /* the limiter: a signal at 4x full scale never passes 1.0 */

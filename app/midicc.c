@@ -26,7 +26,9 @@ static const struct { uint8_t cc, par, fx1; } CC_FX[] = {
 /* the master */
 static const struct { uint8_t cc, m; } CC_MST[] = {
     {7, MS_LEVEL},  {16, MS_EQ_LO}, {17, MS_EQ_MID}, {18, MS_EQ_HI}, {20, MS_CTYPE}, {21, MS_CAMT},     {22, MS_CTONE},
-    {23, MS_CMIX},  {24, MS_PERC},  {25, MS_MEL},    {26, MS_COMP},  {27, MS_PUMP},  {28, MS_PUMP_REL}};
+    {23, MS_CMIX},  {24, MS_PERC},  {25, MS_MEL},    {26, MS_COMP},  {27, MS_PUMP},  {28, MS_PUMP_REL},
+    {29, MS_FTYPE}, {74, MS_FCUT},  {71, MS_FRES},   {30, MS_FMIX}};   /* (the filter: 74 and 71 as a synth's cutoff and
+                                                                        * resonance) */
 
 static int cc_to(int v, int lo, int hi) { return lo + (v * (hi - lo) + 63) / 127; }   /* 0..127 onto lo..hi */
 /* CC IN endless (Setup; proj.rsv[3] CC_IN_ENDLESS): an encoder's value is a turn, not a place (fm1-base midi_rel.h:

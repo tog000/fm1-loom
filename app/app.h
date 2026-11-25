@@ -135,7 +135,9 @@ void loom_lights(uint32_t buttons, uint32_t keys, int glow, uint32_t dim_keys, i
 #define DEBUG_BUILD (APP_VERSION[0] == 'D' && APP_VERSION[1] == 'E' && APP_VERSION[2] == 'V' && \
                      (!APP_VERSION[3] || APP_VERSION[3] == 'T'))   /* DEV, or the load test's DEVTEST */
 #define PROJ_MAGIC 0x384D4F4Cu          /* "LOM8" (was "XXY1": XY-1's projects start fresh) */
-#define PROJ_FORMAT 22u                 /* (10, 0.5-beta's, to 12 load too: project.c migrate_old; older ones do not)
+#define PROJ_FORMAT 23u                 /* (10, 0.5-beta's, to 12 load too: project.c migrate_old; older ones do not)
+                                         * 23: the master filter (master[] 16 -> 20 bytes, MS_FTYPE..MS_FMIX: the
+                                         *     header four bytes longer; older: the filter off);
                                          * 22: knit's osc 2 wave and shape (TP_O2WAVE, TP_O2SHAPE), the tracks' last
                                          *     parameters (older: osc 1's wave, as before);
                                          * 21: the arp's dotted speeds, the delay's triplet times (project.c OLD_ARP);
@@ -190,7 +192,8 @@ typedef struct {
                                          * [4..7] the save count (project.c: the slot saved or loaded last opens at
                                          * power-on); [8] the scenes used, written by every save (GLO's list shows
                                          * it without unpacking the patterns) */
-    uint8_t master[NMS];                /* fx.h MS_*: format 4's twelve end where these sixteen end */
+    uint8_t master[NMS];                /* fx.h MS_*: format 4's twelve end where format 5..22's sixteen end; 23's
+                                         * twenty (the filter) after them */
     trk_t trk[NALLTRK];
 } settings_t;
 #define RSV_SCENES 8                    /* proj.rsv[RSV_SCENES]: the scenes used when saved (0: saved before 0.15) */

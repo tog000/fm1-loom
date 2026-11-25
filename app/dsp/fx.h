@@ -83,7 +83,7 @@ int fx_awake(const fxslot_t *f);                            /* the slot works th
                                                             * others always work) */
 
 /* ---- master ---- */
-/* the master's knobs, three pages: EQ (low, mid, high; 64 flat), color (type, amount, tone, mix), out (drums, melodic,
+/* the master's knobs, four pages: EQ (low, mid, high; 64 flat), color (type, amount, tone, mix), out (drums, melodic,
  * comp, pump); then the out page's list (SEL): what the pump follows, its release, accent, and the level (the drive
  * into the limiter). Value 3 was the EQ's blend, gone: a project's byte there is ignored.
  * color (after the EQ, before the compressor; the voices' character stage's warm types, on the whole mix):
@@ -96,12 +96,25 @@ int fx_awake(const fxslot_t *f);                            /* the slot works th
  * lets it swell back over the release; it is keyed by the sequencer, not by audio, so a muted track drives it
  * too. pump by: PB_KICK any kick of a kit (its first key, or a key on the kick model), PB_T1.. (a kit: its kicks) any note of
  * track 1..8, PB_METRO the metronome's click. release 0..127: 10 .. 1500 ms (60 = 107 ms, X0X's); accent
- * 0 / 1: a hit pumps by its velocity (0.5 .. 1 of the depth) or always fully. */
+ * 0 / 1: a hit pumps by its velocity (0.5 .. 1 of the depth) or always fully.
+ * filter (a fourth page, project format 23; after the color, before the compressor, so it takes the FX returns too):
+ *   type off, lp, hp (24 dB: two state-variable stages, the resonance on the second), bp (12 dB, unity at its peak),
+ *   dj (one knob: 24 dB low-pass below 64, flat at 64, high-pass above, the resonance easing in away from the centre);
+ *   cutoff 30 Hz .. 18 kHz (dj: down to ~60 Hz, up to ~10 kHz), resonance, mix (dry .. wet). The cutoff glides
+ *   (~4 ms), so a knob, a CC or a lock sweeps without zipper. */
 enum { MS_EQ_LO, MS_EQ_MID, MS_EQ_HI, MS_RSV3, MS_CTYPE, MS_CAMT, MS_CTONE, MS_CMIX,
-       MS_PERC, MS_MEL, MS_COMP, MS_PUMP, MS_PUMP_BY, MS_PUMP_REL, MS_PUMP_ACC, MS_LEVEL, NMS };
-#define MS_NKNOB 12                   /* the knobs' places (EQ 0..3, color 4..7, out 8..11); MS_PUMP_BY.. the out page's list */
+       MS_PERC, MS_MEL, MS_COMP, MS_PUMP, MS_PUMP_BY, MS_PUMP_REL, MS_PUMP_ACC, MS_LEVEL,
+       MS_FTYPE, MS_FCUT, MS_FRES, MS_FMIX, NMS };
+#define MS_NKNOB 12                   /* the knobs' places (EQ 0..3, color 4..7, out 8..11); MS_PUMP_BY.. the out page's list;
+                                       * the filter's four (MS_FTYPE..) after the list */
+#define MS_NMS22 16                   /* the master's bytes in project formats 5..22 (the filter's four came in 23) */
 enum { MC_OFF, MC_TAPE, MC_SAMPLER, NMC };   /* the master color's types */
 extern const char *const MC_NAME[NMC];
+enum { MF_OFF, MF_LP, MF_HP, MF_BP, MF_DJ, NMF };   /* the master filter's types */
+extern const char *const MF_NAME[NMF];
+#define MF_DJ_FLAT 64                 /* dj: the cutoff knob's centre, the mix untouched */
+float master_filter_hz(int type, int cut, int *hp);   /* the cutoff a knob value gives (Hz; 0: dj's flat centre);
+                                                      * *hp: 1 when it is a high-pass's (hp, dj above the centre) */
 enum { PB_KICK, PB_T1, PB_METRO = PB_T1 + 8, NPB };
 #define MS_PUMP_REL_DEF 60
 extern const char *const MS_NAME[NMS];
@@ -111,7 +124,7 @@ void master_init(master_t *m);
 void master_clear(master_t *m);                             /* its states at rest, its settings kept */
 void master_set(master_t *m, int p, int v);                 /* 0..127 (EQ 64 = flat; color type 0..NMC-1; pump by
                                                              * 0..NPB-1, accent 0..1; 3 ignored) */
-int master_max(int p);                                      /* a value's top: 127, NPB - 1 or 1 */
+int master_max(int p);                                      /* a value's top: 127, NPB - 1, NMC - 1, NMF - 1 or 1 */
 float master_pump_ms(int v);                                /* the pump's release, ms */
 /* a hit on pump source src (PB_*), velocity 1..127: the pump drops if it follows src (the audio interrupt) */
 void master_key(master_t *m, int src, int vel, int kit);   /* kit: a kit's hit (only the melodic group ducks) */

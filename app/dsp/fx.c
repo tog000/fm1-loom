@@ -962,7 +962,9 @@ int fx_awake(const fxslot_t *f)
  * and pump are perc, mel, comp, pump; then the out page's list */
 const char *const MC_NAME[NMC] = {"off", "tape", "sampler"};
 const char *const MS_NAME[NMS] = {"low", "mid", "high", "-", "color", "amount", "tone", "mix",
-                                  "drums", "melodic", "comp", "pump", "pump by", "release", "accent", "level"};
+                                  "drums", "melodic", "comp", "pump", "pump by", "release", "accent", "level",
+                                  "filter", "cutoff", "reso", "mix"};
+const char *const MF_NAME[NMF] = {"off", "lp", "hp", "bp", "dj"};
 
 typedef struct { float b0, b1, b2, a1, a2; } biq_t;
 typedef struct { float x1, x2, y1, y2; } biqs_t;
@@ -997,6 +999,10 @@ struct master {
     float c_z[2][2], c_ph, c_fph, c_sh[2], c_sp;
     int16_t c_line[2][MC_LINE];
     int32_t c_pos;
+    /* filter (fx.h): the type running; the cutoff knob as it glides (f_pos) to its value; the wet share as it glides;
+     * the two stages' states (TPT SVF: ic1, ic2), L then R */
+    uint8_t f_type, f_side;                   /* f_side: dj's, 1 the high-pass (it crosses the centre all dry) */
+    float f_pos, f_wet, f_s[2][4];
 };
 _Static_assert(sizeof(struct master) <= MASTER_BYTES, "master_t does not fit MASTER_BYTES");
 
@@ -1014,7 +1020,10 @@ static float level_lin(int v)                 /* 0 .. 100 .. 127: silence, unity
 }
 static float coef_ms(float t) { return fm_expf(-1000.0f / (t * SR)); }
 float master_pump_ms(int v) { return 10.0f * fm_exp2f((float)v * (7.229f / 127.0f)); }   /* X0X's release: 10 .. 1500 */
-int master_max(int p) { return p == MS_PUMP_BY ? NPB - 1 : p == MS_PUMP_ACC ? 1 : p == MS_CTYPE ? NMC - 1 : 127; }
+int master_max(int p)
+{
+    return p == MS_PUMP_BY ? NPB - 1 : p == MS_PUMP_ACC ? 1 : p == MS_CTYPE ? NMC - 1 : p == MS_FTYPE ? NMF - 1 : 127;
+}
 /* PUMP's duck rises over this (X0X's MASTER_PUMP_RISE_MS): 12 ms lets the kick's attack through and then ducks;
  * at 3 ms X0X heard a click on every kick */
 #define MST_PUMP_RISE_MS 12.0f
@@ -1190,9 +1199,48 @@ static inline void color_block(master_t *m, float *l, float *r, uint32_t n)
     m->c_z[1][1] = fm_flush(z11);
 }
 
+/* ---- the filter (fx.h) ---- */
+/* the cutoff at knob place x (0..127, between steps as it glides); *hp: a high-pass's */
+static inline float mf_hz(int type, float x, int *hp)
+{
+    *hp = type == MF_HP;
+    if (type == MF_DJ) {
+        if (x > (float)MF_DJ_FLAT) {          /* a high-pass from 20 Hz up to ~10 kHz */
+            *hp = 1;
+            return 20.0f * fm_exp2f((x - 64.0f) * (9.0f / 63.0f));
+        }
+        return 18000.0f * fm_exp2f((x - 64.0f) * (8.2f / 64.0f));   /* a low-pass from 18 kHz down to ~60 Hz */
+    }
+    return 30.0f * fm_exp2f(x * (9.2288f / 127.0f));    /* 30 Hz .. 18 kHz */
+}
+float master_filter_hz(int type, int cut, int *hp)
+{
+    if (type == MF_DJ && cut == MF_DJ_FLAT) {
+        *hp = 0;
+        return 0.0f;
+    }
+    return mf_hz(type, (float)cut, hp);
+}
+/* a type turned on (or changed from off) starts from rest, at its cutoff: no glide from a value it never had */
+static void filter_set(master_t *m)
+{
+    int type = m->pot[MS_FTYPE] < NMF ? m->pot[MS_FTYPE] : MF_OFF;
+    if (type != m->f_type) {                  /* (the interrupt may be mid-block: the states zeroed first) */
+        if (m->f_type == MF_OFF) {
+            int i;
+            for (i = 0; i < 4; i++)
+                m->f_s[0][i] = m->f_s[1][i] = 0.0f;
+            m->f_pos = (float)m->pot[MS_FCUT];
+            m->f_wet = 0.0f;                    /* (fades in: no step from the dry mix) */
+        }
+        m->f_type = (uint8_t)type;
+    }
+}
+
 void master_init(master_t *m)
 {
-    static const uint8_t DEF[NMS] = {64, 64, 64, 0, MC_OFF, 40, 64, 127, 100, 100, 0, 0, PB_KICK, MS_PUMP_REL_DEF, 1, 100};
+    static const uint8_t DEF[NMS] = {64, 64, 64, 0, MC_OFF, 40, 64, 127, 100, 100, 0, 0, PB_KICK, MS_PUMP_REL_DEF, 1, 100,
+                                     MF_OFF, MF_DJ_FLAT, 0, 127};
     uint32_t i;
     uint8_t *z = (uint8_t *)m;
     for (i = 0; i < sizeof *m; i++)
@@ -1206,6 +1254,8 @@ void master_init(master_t *m)
     eq_coefs(m);
     comp_coefs(m);
     color_coefs(m);
+    m->f_type = MF_OFF;
+    m->f_pos = MF_DJ_FLAT;
 }
 
 void master_clear(master_t *m)
@@ -1236,6 +1286,8 @@ void master_set(master_t *m, int p, int v)
         m->gm = level_lin(v) * MST_HEADROOM;
     else if (p == MS_LEVEL)
         m->glev = level_lin(v);
+    else if (p >= MS_FTYPE)
+        filter_set(m);
     else
         comp_coefs(m);                                    /* comp, the pump's depth, source, release, accent */
 }
@@ -1306,6 +1358,106 @@ static inline void biq_block(const biq_t *q, biqs_t *st, float *x, uint32_t n)
     st->y1 = y1;
     st->y2 = y2;
 }
+/* the filter over a block of the bus, in place: the coefficients every MST_FCH samples, from the cutoff knob as it
+ * glides; the wet share ramps. A dj sweep that crosses the centre waits there while the wet fades to nothing (~4 ms),
+ * then goes on from rest on the other side: the low-pass at 18 kHz and the high-pass at 20 Hz both pass the level, but not
+ * the phase of the lows, so a switch from one to the other while wet would click */
+#define MST_FCH 16
+static inline void filter_block(master_t *m, float *l, float *r, uint32_t n)
+{
+    const int type = m->f_type;
+    const float tpos = (float)m->pot[MS_FCUT], res = (float)m->pot[MS_FRES] * (1.0f / 127.0f);
+    const float tmix = (float)m->pot[MS_FMIX] * (1.0f / 127.0f);
+    float pos = m->f_pos, wet = m->f_wet;
+    float l1a = m->f_s[0][0], l1b = m->f_s[0][1], l2a = m->f_s[0][2], l2b = m->f_s[0][3];
+    float r1a = m->f_s[1][0], r1b = m->f_s[1][1], r2a = m->f_s[1][2], r2b = m->f_s[1][3];
+    uint32_t i = 0;
+    while (i < n) {
+        uint32_t e = i + MST_FCH < n ? i + MST_FCH : n, j;
+        float hz, g, k1, k2, a11, a12, a13, a21, a22, a23, tw, w_step;
+        int hp;
+        float nw;
+        pos += (tpos - pos) * 0.1f;            /* ~4 ms */
+        if (fm_fabsf(tpos - pos) < 0.01f)
+            pos = tpos;
+        if (type == MF_DJ) {
+            float ad;
+            int side = pos > (float)MF_DJ_FLAT ? 1 : pos < (float)MF_DJ_FLAT ? 0 : m->f_side, hold = 0;
+            if (side != m->f_side) {
+                if (wet > 0.001f) {            /* across the centre: wait there, dry first */
+                    pos = (float)MF_DJ_FLAT;
+                    hold = 1;
+                } else {                       /* dry: the other side from rest */
+                    m->f_side = (uint8_t)side;
+                    l1a = l1b = l2a = l2b = r1a = r1b = r2a = r2b = 0.0f;
+                }
+            }
+            hp = m->f_side;
+            hz = hp ? 20.0f * fm_exp2f((pos - 64.0f) * (9.0f / 63.0f)) : 18000.0f * fm_exp2f((pos - 64.0f) * (8.2f / 64.0f));
+            ad = fm_fabsf(pos - (float)MF_DJ_FLAT);
+            tw = tmix * fm_minf(ad * (1.0f / 1.5f), 1.0f);         /* the centre flat: dry, faded across it */
+            k2 = 0.765f - 0.64f * res * fm_minf(ad * (1.0f / 16.0f), 1.0f);   /* the resonance eases in */
+            nw = hold ? (wet * 0.5f < 0.001f ? 0.0f : wet * 0.5f) : wet + (tw - wet) * 0.1f;
+        } else {
+            hz = mf_hz(type, pos, &hp);
+            tw = tmix;
+            k2 = 0.765f - 0.64f * res;
+            nw = wet + (tw - wet) * 0.1f;
+        }
+        hz = fm_clampf(hz, 20.0f, 0.45f * SR);
+        g = fm_tanf(FM_PI * hz / SR);
+        if (type == MF_BP) {                   /* one stage, narrow with the resonance */
+            k1 = 1.4142136f - 1.33f * res;
+        } else {
+            k1 = 1.847759f;                    /* (fourth-order Butterworth's first stage; the second's 0.765 at rest) */
+        }
+        a11 = 1.0f / (1.0f + g * (g + k1));
+        a12 = g * a11;
+        a13 = g * a12;
+        a21 = 1.0f / (1.0f + g * (g + k2));
+        a22 = g * a21;
+        a23 = g * a22;
+        w_step = (nw - wet) * (1.0f / (float)(e - i));
+        if (type == MF_BP) {
+            for (j = i; j < e; j++) {
+                float x = l[j], v3, v1, v2;
+                wet += w_step;
+                v3 = x - l1b; v1 = a11 * l1a + a12 * v3; v2 = l1b + a12 * l1a + a13 * v3;
+                l1a = 2.0f * v1 - l1a; l1b = 2.0f * v2 - l1b;
+                l[j] = x + wet * (k1 * v1 - x);
+                x = r[j];
+                v3 = x - r1b; v1 = a11 * r1a + a12 * v3; v2 = r1b + a12 * r1a + a13 * v3;
+                r1a = 2.0f * v1 - r1a; r1b = 2.0f * v2 - r1b;
+                r[j] = x + wet * (k1 * v1 - x);
+            }
+        } else {
+            for (j = i; j < e; j++) {
+                float x = l[j], v3, v1, v2, y;
+                wet += w_step;
+                v3 = x - l1b; v1 = a11 * l1a + a12 * v3; v2 = l1b + a12 * l1a + a13 * v3;
+                l1a = 2.0f * v1 - l1a; l1b = 2.0f * v2 - l1b;
+                y = hp ? x - k1 * v1 - v2 : v2;
+                v3 = y - l2b; v1 = a21 * l2a + a22 * v3; v2 = l2b + a22 * l2a + a23 * v3;
+                l2a = 2.0f * v1 - l2a; l2b = 2.0f * v2 - l2b;
+                y = hp ? y - k2 * v1 - v2 : v2;
+                l[j] = x + wet * (y - x);
+                x = r[j];
+                v3 = x - r1b; v1 = a11 * r1a + a12 * v3; v2 = r1b + a12 * r1a + a13 * v3;
+                r1a = 2.0f * v1 - r1a; r1b = 2.0f * v2 - r1b;
+                y = hp ? x - k1 * v1 - v2 : v2;
+                v3 = y - r2b; v1 = a21 * r2a + a22 * v3; v2 = r2b + a22 * r2a + a23 * v3;
+                r2a = 2.0f * v1 - r2a; r2b = 2.0f * v2 - r2b;
+                y = hp ? y - k2 * v1 - v2 : v2;
+                r[j] = x + wet * (y - x);
+            }
+        }
+        i = e;
+    }
+    m->f_pos = pos;
+    m->f_wet = wet;
+    m->f_s[0][0] = fm_flush(l1a); m->f_s[0][1] = fm_flush(l1b); m->f_s[0][2] = fm_flush(l2a); m->f_s[0][3] = fm_flush(l2b);
+    m->f_s[1][0] = fm_flush(r1a); m->f_s[1][1] = fm_flush(r1b); m->f_s[1][2] = fm_flush(r2a); m->f_s[1][3] = fm_flush(r2b);
+}
 void master_process(master_t *m, float *perc_l, float *perc_r, float *mel_l, float *mel_r, float *out_l,
                     float *out_r, uint32_t n)
 {
@@ -1359,6 +1511,8 @@ void master_process(master_t *m, float *perc_l, float *perc_r, float *mel_l, flo
     }
     if (m->col != MC_OFF && STAGE(2))
         color_block(m, mel_l, mel_r, n);
+    if (m->f_type != MF_OFF && STAGE(2))
+        filter_block(m, mel_l, mel_r, n);
     {
         const float glev = m->glev, a_det = m->a_det, a_att = m->a_att, a_rel = m->a_rel, slope = m->slope;
         const float makeup = m->makeup;

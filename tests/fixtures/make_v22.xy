@@ -1,0 +1,23 @@
+# a format 22 project, from before the master filter (format 23: master[] 16 -> 20 bytes, the settings header four
+# bytes longer): saved by that build, for the migration's test (tests/scenarios/migrate.xy). The master moved off its
+# defaults on both sides of where the filter's bytes now sit (EQ high 90, comp 77, pump 40), and a track's cutoff after
+# the header (T2 cut 33), so a header read at the wrong length shows.
+# Run by a format 22 build (22d9613): its loom_host tests/fixtures/make_v22.xy OUT
+wait 300
+bpm 97
+param 2 cut 33
+tap GLO
+expect page Mix
+turn SELECT 1
+expect page Master_EQ
+spin K3 26
+turn SELECT 2
+expect page Master_out
+spin K3 47
+spin K4 40
+expect mst.hi 90
+expect mst.comp 77
+expect mst.pump 40
+expect par2.cut 33
+projsave 1 v22_test
+storesave tests/fixtures/store_v22.bin

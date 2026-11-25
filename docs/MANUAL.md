@@ -180,6 +180,7 @@ Count the white keys 1 to 16 from the left, and the black keys 1 to 11. "Hold **
 | switch scenes while playing | On Arrange, press the scene's white key, and it starts at the next bar. Press it again to switch at once. To wait for the end of T1's pattern instead, set SCENES SWITCH in the **SEL** list to "pattern end". <!-- hint: press HOME; white 2 --> |
 | mute a track | On Arrange or Mix, press its black key. On Mix, hold it to solo the track for as long as you hold it. <!-- hint: black 1 --> |
 | mute one drum sound in a scene | On Arrange, hold the kit track's black key and press white keys 1 to 11. <!-- hint: black 1; white 1-11 --> |
+| filter the whole mix | Press **GLO**, turn **SELECT** to Master filter and turn **KNOB 1** to dj. Then **KNOB 2** sweeps: left of the middle closes a low-pass, right of it opens a high-pass. <!-- hint: press GLO; turn SELECT, KNOB 1, KNOB 2 --> |
 | make the whole mix pump with the kick | Press **GLO**, turn **SELECT** to Master out and turn **KNOB 4** (pump). **SEL** picks what drives it and how fast it swells back. <!-- hint: press GLO; turn SELECT, KNOB 4 --> |
 | solo a track | On Mix, hold its black key (hold several to solo them together). Let go and the mutes come back. Tap it twice and the solo stays when you let go (also on other pages); tap any track's black key on Mix to end it. <!-- hint: black 1 --> |
 | sweep a few tracks together | Press **GLO** and turn **SELECT** to LFO, the shared LFO. The black keys pick the tracks, and **KNOB 4** picks what it moves. <!-- hint: press GLO; turn SELECT, KNOB 4; black 1,2,3 --> |
@@ -206,7 +207,7 @@ Count the white keys 1 to 16 from the left, and the black keys 1 to 11. "Hold **
 | **FX** | Opens Character, the track's own effect. Next come Sends, the track's sends to FX I and FX II, and then FX I and FX II, the two effects. |
 | **LFO** | Opens LFO. Page 2 has the type's fourth and fifth knobs. |
 | **ARP** | Opens Players. With the arp, page 2 has its second set of knobs and page 3 is hold. |
-| **GLO** | Opens Mix. Turn **SELECT** for Master EQ, Master color, Master out, LFO (the shared LFO) and Setup. |
+| **GLO** | Opens Mix. Turn **SELECT** for Master EQ, Master color, Master out, Master filter, LFO (the shared LFO) and Setup. |
 | **SAVE** | Saves. Hold it and press a white key to save to a slot, or to keep a sound. |
 | **OCT−** / **OCT+** | Move the keys an octave. On Steps, they show the bar before or after (with **SEQ** held, they move the pattern an octave), and with a step held, they nudge it. In step record, they move the cursor. On Arrange and Song, they put scenes 1 to 16 or 17 to 32 on the white keys. |
 | **SELECT** | Turns to a button's next page. In a list, it moves up and down. |
@@ -1329,6 +1330,7 @@ Turn **SELECT** for more pages:
 - Master out has the drums' level, the melodic tracks' level, the compressor and the pump. The **SEL** list on
   these pages lists their knobs, page by page, along with what the pump follows, its release and accent, and the
   master level.
+- Master filter is a filter on the whole mix, described below.
 
 On Setup, the knobs set the lights, the MIDI clock, sending MIDI notes and the theme. The clock is internal, receive
 or send (see MIDI, below). Sending notes is on to start with. The theme is b/w to start with, or tape deck or
@@ -1370,6 +1372,20 @@ character's amount is the whole kit's.
 - **off** leaves the mix as it is. A new project starts here.
 
 Each synth track's Character page has the same two, for one sound.
+
+**Master filter** puts a filter on the whole mix, after the color and before the compressor, so the echoes and the
+reverb go through it too. Its knobs are **filter** (the type), **cutoff**, **reso** and **mix**.
+
+- **dj** is the one to play live. **cutoff** at 64, the middle, leaves the mix as it is. Turn it left and a
+  low-pass closes, down to about 60 Hz. Turn it right and a high-pass opens, up to about 10 kHz. The resonance
+  comes in as you move away from the middle, so the middle stays clean, and the sweep crosses it without a click.
+- **lp** and **hp** are a steep low-pass and high-pass (24 dB an octave), with the cutoff from 30 Hz to 18 kHz.
+- **bp** keeps a band around the cutoff. More **reso** makes the band narrower.
+- **off** leaves the mix as it is. A new project starts here, and so does a project saved before the filter
+  existed.
+
+**mix** blends the filtered mix with the dry one. The cutoff glides, so a fast turn sweeps instead of stepping. Over
+MIDI, the filter is on channel 11: CC 29 the type, CC 74 the cutoff, CC 71 the resonance and CC 30 the mix.
 
 **Pump** is Master out's fourth knob. It lowers the mix each time the kick plays, by up to 24 dB, and lets it swell
 back up, for the big-beat breathing of house and French touch. When a kit drives it, through its kick or as a kit
@@ -1532,7 +1548,9 @@ the selected instrument track.
 | 20-23 | - | color type / amount / tone / mix |
 | 24-27 | - | drums level / melodic level / comp / pump |
 | 28 | - | pump release |
-| 74 / 75 | low-pass / high-pass | - |
+| 29 / 30 | - | filter type / filter mix |
+| 71 | - | filter resonance |
+| 74 / 75 | low-pass / high-pass | filter cutoff (74) |
 | 93 | feed into FX II (channel 9 only) | - |
 
 A mute (CC 9, or 16 to 26 on a kit) works like the mute on the Mix page and is saved into the scene that is
@@ -1662,6 +1680,7 @@ and the echoes fade out. Every voice sounds in the file, so a busy song can soun
 | GLO, SELECT | Master EQ | low | mid | high | | |
 | GLO, SELECT | Master color | color | amount | tone | mix | |
 | GLO, SELECT | Master out | drums | melodic | comp | pump | SEL: pump by, release, accent, level |
+| GLO, SELECT | Master filter | filter | cutoff | reso | mix | |
 | GLO, SELECT | LFO | shape | rate | amount | dest | black: the tracks it moves; white 1-11: a kit's sound, 12 all |
 | GLO, SELECT | Setup | lights | clock | notes | theme | SEL: Bluetooth MIDI and audio, their devices, USB audio, USB port, loop throws, autosave, CC out, scenes out |
 

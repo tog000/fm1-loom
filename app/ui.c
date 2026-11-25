@@ -2349,7 +2349,7 @@ static void knob_do(int k, int32_t e)
     case P_SONG: song_knob(k, e); return;
     case P_STEPS: steps_knob(k, e); return;
     case P_BAR: bar_knob(k, e); return;
-    case P_MASTER: case P_MASTER2: case P_MASTER3: master_knob(k, e); return;
+    case P_MASTER: case P_MASTER2: case P_MASTER3: case P_MASTER4: master_knob(k, e); return;
     case P_SETUP: setup_knob(k, e); return;
     case P_STATUS: debug_knob(k, e); return;
     case P_GLFO: glfo_knob(k, e); return;

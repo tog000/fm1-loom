@@ -156,3 +156,40 @@ said K8 kit
 tap SEL
 wait 40
 expect par1.d2.model 12
+
+# format 22 (tests/fixtures/make_v22.xy): before the master filter. The master's bytes on both sides of where the
+# filter's now sit, and a track's after the header, come back as saved; the filter comes back off, at its defaults
+storeload tests/fixtures/store_v22.bin
+reboot
+wait 400
+expect tempo 97
+expect mst.hi 90
+expect mst.comp 77
+expect mst.pump 40
+expect mst.level 100
+expect par2.cut 33
+expect mst.filter 0
+expect mst.fcut 64
+expect mst.fres 0
+expect mst.fmix 127
+# saved again (format 23) with the filter on: it all comes back after a restart
+tap GLO
+turn SELECT 4
+expect page Master_filter
+spin K1 4
+spin K2 -20
+spin K3 70
+spin K4 -27
+expect mst.filter 4
+expect mst.fcut 44
+projsave 1
+reboot
+wait 400
+expect tempo 97
+expect mst.hi 90
+expect mst.comp 77
+expect par2.cut 33
+expect mst.filter 4
+expect mst.fcut 44
+expect mst.fres 70
+expect mst.fmix 100
